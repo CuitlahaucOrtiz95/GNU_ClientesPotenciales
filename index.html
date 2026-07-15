@@ -4,18 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clientes Potenciales · Morelia</title>
-  <!-- Resource hints: abre las conexiones antes de necesitarlas -->
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
-
-  <!-- CSS crítico (bloqueante: el mapa lo necesita para pintar bien) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-
-  <!-- CSS no crítico: se carga sin bloquear el primer render -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
         media="print" onload="this.media='all';this.onload=null" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
@@ -24,8 +18,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   </noscript>
-
-  <!-- JS con defer: descarga en paralelo desde el <head>, ejecuta en orden -->
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script defer src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script defer src="ductos.js"></script>
@@ -282,6 +274,10 @@
     <button class="btn btn-success" id="geocodeBtn" aria-label="Obtener direcciones de los clientes visibles">
       <i class="fas fa-address-card"></i> Obtener direcciones
     </button>
+    <button class="btn btn-secondary" id="cargarKmlBtn" aria-label="Cargar KML de direcciones">
+      <i class="fas fa-file-upload"></i> Cargar KML
+    </button>
+    <input type="file" id="kmlFileInput" accept=".kml" style="display:none;" />
 
     <span class="separator"></span>
 
@@ -333,13 +329,11 @@
 document.addEventListener('DOMContentLoaded', function(){
   "use strict";
 
-  // Cambia a true si necesitas ver los logs de diagnóstico en consola
   const DEBUG = false;
   const log  = (...a) => { if (DEBUG) console.log(...a); };
   const warn = (...a) => { if (DEBUG) console.warn(...a); };
 
   // Lee un array guardado en localStorage con formato "window.VAR = [...];"
-  // sin usar eval() (evita ejecutar código arbitrario).
   function leerArrayGuardado(raw) {
     if (!raw) return null;
     const i = raw.indexOf('=');
@@ -449,8 +443,7 @@ document.addEventListener('DOMContentLoaded', function(){
     }
   }
 
-  // Calcula distancia/rango y normaliza campos. El ancla es fija, así que
-  // esto solo hace falta una vez por registro (antes se recalculaba en cada refresco).
+  // Enriquecer: calcula distancia, asigna colores, detecta "Parque Industrial"
   function enriquecer(lista) {
     for (const s of lista) {
       s.distKm = distanciaKm(ANCLA.lat, ANCLA.lon, s.lat, s.lon);
@@ -462,6 +455,11 @@ document.addEventListener('DOMContentLoaded', function(){
       s.estado = s.estado || '';
       s.tamano = s.tamano || '';
       s.telefono = s.telefono || '';
+
+      // Detección de "Parque Industrial" en el nombre
+      if (s.nombre && s.nombre.toLowerCase().includes('parque industrial')) {
+        s.tamano = 'Parque Industrial';
+      }
     }
     return lista;
   }
@@ -853,8 +851,8 @@ document.addEventListener('DOMContentLoaded', function(){
   //  7. CLÚSTER Y MARCADORES DE CLIENTES
   // ============================================================
   const cluster = L.markerClusterGroup({
-    chunkedLoading: true,              // no congela la UI al cargar muchos puntos
-    removeOutsideVisibleBounds: true,  // no dibuja lo que está fuera de pantalla
+    chunkedLoading: true,
+    removeOutsideVisibleBounds: true,
     maxClusterRadius: 50,
     iconCreateFunction: function(c) {
       const n = c.getChildCount();
@@ -865,21 +863,17 @@ document.addEventListener('DOMContentLoaded', function(){
       });
     },
     zoomToBoundsOnClick: true,
-    spiderfyOnMaxZoom: true,
-    removeOutsideVisibleBounds: true
+    spiderfyOnMaxZoom: true
   });
   map.addLayer(cluster);
   const markerMap = new Map();
 
-  // Marcador fijo de Morelia
   L.marker([ANCLA.lat, ANCLA.lon], {
     icon: L.divIcon({ className: '', iconSize: [44,44], iconAnchor: [22,40],
       html: `<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));">⭐</div>` }),
     zIndexOffset: 1000, title: 'Morelia (ancla)'
   }).addTo(map).bindPopup(`<strong style="color:var(--primary);">⭐ ${ANCLA.nombre}</strong><br><span style="font-size:.8rem;color:#64748b;">Referencia para distancias</span>`);
 
-  // Los pines solo varían por color (4 posibles). Creamos cada L.divIcon UNA vez
-  // y la reutilizamos: antes se generaba un icono nuevo por cada marcador.
   const iconCache = new Map();
   function iconoPin(color) {
     let ic = iconCache.get(color);
@@ -933,7 +927,6 @@ document.addEventListener('DOMContentLoaded', function(){
       markerMap.set(s, { marker, data: s });
       nuevos.push(marker);
     });
-    // addLayers() en lote es mucho más rápido que addLayer() en bucle
     cluster.addLayers(nuevos);
     document.getElementById('rTotal').textContent = stations.length;
     log(`Marcadores reconstruidos: ${stations.length}`);
@@ -1012,7 +1005,6 @@ document.addEventListener('DOMContentLoaded', function(){
       { label: '140 – 180 km', key: 'high',     color: '#ef4444' },
       { label: '> 180 km',     key: 'no-price', color: '#94a3b8' }
     ];
-    // Un solo conteo (antes: 4 pasadas sobre stations) y un solo innerHTML
     const conteo = new Map();
     for (const s of stations) conteo.set(s.priceKey, (conteo.get(s.priceKey) || 0) + 1);
     div.innerHTML += ranges.map(r => `<div class="row" data-key="${r.key}">
@@ -1025,7 +1017,7 @@ document.addEventListener('DOMContentLoaded', function(){
   legendControl.addTo(map);
 
   // ============================================================
-  //  10. FILTROS Y EVENTOS (clientes) - incluye tamaño
+  //  10. FILTROS Y EVENTOS (clientes)
   // ============================================================
   let activePrice = null, activeTamano = 'all', searchTerm = '', maxDist = 210;
 
@@ -1114,7 +1106,7 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 
   // ============================================================
-  //  11. RENDERIZAR LISTA (directorio) con estado
+  //  11. RENDERIZAR LISTA (directorio)
   // ============================================================
   function renderList(items) {
     const ul = document.getElementById('list');
@@ -1250,7 +1242,6 @@ document.addEventListener('DOMContentLoaded', function(){
       if (result) {
         s.direccion = result.direccion;
         s.estado = result.estado || s.estado;
-        // Actualizar popup
         const entry = markerMap.get(s);
         if (entry) {
           entry.marker.closePopup();
@@ -1285,7 +1276,6 @@ document.addEventListener('DOMContentLoaded', function(){
     fill.style.width = '100%';
     setTimeout(() => { progress.style.display = 'none'; }, 2000);
 
-    // Guardar en localStorage
     try {
       localStorage.setItem('CLIENTES_JS', `window.CLIENTES_POTENCIALES = ${JSON.stringify(stations)};`);
       localStorage.setItem('CLIENTES_ACTUALIZADO', Date.now().toString());
@@ -1296,7 +1286,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
   document.getElementById('geocodeBtn').addEventListener('click', geocodeClientesVisibles);
 
-  // Delegación para botones de geocodificación individual en popups
   document.addEventListener('click', async function(e) {
     if (e.target.classList.contains('btn-geocode')) {
       const lat = parseFloat(e.target.dataset.lat);
@@ -1364,7 +1353,119 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   // ============================================================
-  //  15. RECARGA DE CLIENTES Y DUCTOS DESDE LOCALSTORAGE
+  //  15. CARGA DE KML CON DIRECCIONES (geocodificación directa)
+  // ============================================================
+  document.getElementById('cargarKmlBtn').addEventListener('click', function() {
+    document.getElementById('kmlFileInput').click();
+  });
+
+  document.getElementById('kmlFileInput').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async function(ev) {
+      try {
+        const kmlText = ev.target.result;
+        const parser = new DOMParser();
+        const kml = parser.parseFromString(kmlText, 'text/xml');
+
+        const addresses = [];
+        const placemarks = kml.getElementsByTagName('Placemark');
+        for (let pm of placemarks) {
+          let address = '';
+          const addrNode = pm.getElementsByTagName('address')[0];
+          if (addrNode) address = addrNode.textContent.trim();
+          if (!address) {
+            const nameNode = pm.getElementsByTagName('name')[0];
+            if (nameNode) address = nameNode.textContent.trim();
+          }
+          if (address) addresses.push(address);
+        }
+
+        if (addresses.length === 0) {
+          alert('No se encontraron direcciones en el KML.');
+          return;
+        }
+
+        const progress = document.getElementById('geocodeProgress');
+        const status = document.getElementById('geoStatus');
+        const count = document.getElementById('geoCount');
+        const fill = document.getElementById('geoFill');
+        progress.style.display = 'block';
+
+        let nuevosClientes = [];
+        let procesados = 0;
+        const total = addresses.length;
+
+        for (const dir of addresses) {
+          status.textContent = `Geocodificando: ${dir}`;
+          count.textContent = `${procesados+1}/${total}`;
+          fill.style.width = `${(procesados/total)*100}%`;
+
+          const coords = await geocodeDireccion(dir);
+          if (coords) {
+            nuevosClientes.push({
+              nombre: dir.substring(0, 60),
+              lat: coords.lat,
+              lon: coords.lon,
+              estado: '',
+              tamano: '',
+              direccion: dir,
+              telefono: ''
+            });
+          }
+          procesados++;
+          fill.style.width = `${(procesados/total)*100}%`;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        progress.style.display = 'none';
+
+        if (nuevosClientes.length === 0) {
+          alert('No se pudo geocodificar ninguna dirección.');
+          return;
+        }
+
+        stations = stations.concat(nuevosClientes);
+        stations = deduplicate(stations);
+        enriquecer(stations);
+
+        localStorage.setItem('CLIENTES_JS', `window.CLIENTES_POTENCIALES = ${JSON.stringify(stations)};`);
+        localStorage.setItem('CLIENTES_ACTUALIZADO', Date.now().toString());
+
+        reconstruirMarcadoresClientes();
+        actualizarSelectTamano();
+        applyFilters();
+
+        alert(`✅ ${nuevosClientes.length} clientes agregados correctamente.`);
+
+      } catch (err) {
+        alert('Error al procesar el KML: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  async function geocodeDireccion(direccion) {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(direccion)}&format=json&limit=1`;
+    try {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'ClientesPotencialesMap/1.0' }
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      }
+      return null;
+    } catch (e) {
+      console.warn(`Error geocodificando "${direccion}":`, e);
+      return null;
+    }
+  }
+
+  // ============================================================
+  //  16. RECARGA DE CLIENTES Y DUCTOS DESDE LOCALSTORAGE
   // ============================================================
   function recargarClientes() {
     const nuevoJS = localStorage.getItem('CLIENTES_JS');
@@ -1411,7 +1512,7 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 
   // ============================================================
-  //  16. INICIALIZACIÓN FINAL
+  //  17. INICIALIZACIÓN FINAL
   // ============================================================
   reconstruirMarcadoresClientes();
   actualizarSelectTamano();
