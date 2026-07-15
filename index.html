@@ -4,11 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clientes Potenciales · Morelia</title>
-  <link rel="preconnect" href="https://unpkg.com" />
+  <!-- Resource hints: abre las conexiones antes de necesitarlas -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
+
+  <!-- CSS crítico (bloqueante: el mapa lo necesita para pintar bien) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- CSS no crítico: se carga sin bloquear el primer render -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        media="print" onload="this.media='all';this.onload=null" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        media="print" onload="this.media='all';this.onload=null" />
+  <noscript>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  </noscript>
+
+  <!-- JS con defer: descarga en paralelo desde el <head>, ejecuta en orden -->
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script defer src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script defer src="ductos.js"></script>
+  <script defer src="ClientesPotenciales.js"></script>
   <style>
     /* ===== ESTILOS OPTIMIZADOS ===== */
     :root {
@@ -308,17 +329,25 @@
   <div class="bar"><div class="fill" id="geoFill"></div></div>
 </div>
 
-<!-- Scripts de Leaflet -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-
-<!-- Datos externos -->
-<script src="ductos.js"></script>
-<script src="ClientesPotenciales.js"></script>
-
 <script>
-(function(){
+document.addEventListener('DOMContentLoaded', function(){
   "use strict";
+
+  // Cambia a true si necesitas ver los logs de diagnóstico en consola
+  const DEBUG = false;
+  const log  = (...a) => { if (DEBUG) console.log(...a); };
+  const warn = (...a) => { if (DEBUG) console.warn(...a); };
+
+  // Lee un array guardado en localStorage con formato "window.VAR = [...];"
+  // sin usar eval() (evita ejecutar código arbitrario).
+  function leerArrayGuardado(raw) {
+    if (!raw) return null;
+    const i = raw.indexOf('=');
+    if (i === -1) return null;
+    let json = raw.slice(i + 1).trim();
+    if (json.endsWith(';')) json = json.slice(0, -1);
+    try { return JSON.parse(json); } catch (e) { return null; }
+  }
 
   // ============================================================
   //  0. COORDENADA ANCLA (Morelia)
@@ -386,19 +415,19 @@
   function cargarDuctosIniciales() {
     const guardado = localStorage.getItem('DUCTOS_JS');
     if (guardado) {
-      try {
-        eval(guardado);
-        if (window.DUCTOS && Array.isArray(window.DUCTOS)) {
-          const geojson = convertirArrayAGeoJSON(window.DUCTOS);
-          window.DUCTOS_GAS = geojson;
-          ductosData = geojson;
-          console.log('✅ Ductos cargados desde localStorage');
-          return;
-        }
-      } catch (e) { console.warn('Error al evaluar DUCTOS_JS:', e); }
+      const arr = leerArrayGuardado(guardado);
+      if (arr && Array.isArray(arr)) {
+        window.DUCTOS = arr;
+        const geojson = convertirArrayAGeoJSON(arr);
+        window.DUCTOS_GAS = geojson;
+        ductosData = geojson;
+        log('Ductos cargados desde localStorage');
+        return;
+      }
+      warn('DUCTOS_JS no se pudo interpretar; se usa el archivo ductos.js');
     }
     ductosData = window.DUCTOS_GAS || { type: "FeatureCollection", features: [] };
-    console.log(`📊 Ductos cargados desde archivo: ${ductosData.features.length}`);
+    log(`Ductos cargados desde archivo: ${ductosData.features.length}`);
   }
   cargarDuctosIniciales();
 
@@ -410,34 +439,35 @@
   let rawData = window.CLIENTES_POTENCIALES || [];
   const clientesGuardado = localStorage.getItem('CLIENTES_JS');
   if (clientesGuardado) {
-    try {
-      eval(clientesGuardado);
-      rawData = window.CLIENTES_POTENCIALES || [];
-      console.log('✅ Clientes cargados desde localStorage');
-    } catch (e) { console.warn('Error al evaluar CLIENTES_JS:', e); }
+    const arr = leerArrayGuardado(clientesGuardado);
+    if (arr && Array.isArray(arr)) {
+      window.CLIENTES_POTENCIALES = arr;
+      rawData = arr;
+      log('Clientes cargados desde localStorage');
+    } else {
+      warn('CLIENTES_JS no se pudo interpretar; se usa ClientesPotenciales.js');
+    }
   }
-  let stations = deduplicate(rawData);
-  stations.forEach(s => {
-    s.distKm = distanciaKm(ANCLA.lat, ANCLA.lon, s.lat, s.lon);
-    const r = getDistRange(s.distKm);
-    s.priceKey = r.key;
-    s.priceColor = r.color;
-    s.priceLabel = r.label;
-    // Aseguramos campos adicionales
-    s.direccion = s.direccion || '';
-    s.estado = s.estado || '';
-    s.tamano = s.tamano || '';
-    s.telefono = s.telefono || '';
-  });
 
-  console.log(`📋 Clientes cargados: ${stations.length}`);
-  
-  // DEPURACIÓN: Mostrar los primeros tamaños para verificar
-  const tamanosUnicos = [...new Set(stations.map(s => s.tamano).filter(Boolean))];
-  console.log(`📋 Tamaños encontrados: ${tamanosUnicos.length} - ${tamanosUnicos.join(', ')}`);
-  if (tamanosUnicos.length === 0) {
-    console.warn('⚠️ No se encontraron tamaños. Asegúrate de usar el convertidor corregido que lee "Tamaño de empresa" o "Tipo de empresa".');
+  // Calcula distancia/rango y normaliza campos. El ancla es fija, así que
+  // esto solo hace falta una vez por registro (antes se recalculaba en cada refresco).
+  function enriquecer(lista) {
+    for (const s of lista) {
+      s.distKm = distanciaKm(ANCLA.lat, ANCLA.lon, s.lat, s.lon);
+      const r = getDistRange(s.distKm);
+      s.priceKey = r.key;
+      s.priceColor = r.color;
+      s.priceLabel = r.label;
+      s.direccion = s.direccion || '';
+      s.estado = s.estado || '';
+      s.tamano = s.tamano || '';
+      s.telefono = s.telefono || '';
+    }
+    return lista;
   }
+
+  let stations = enriquecer(deduplicate(rawData));
+  log(`Clientes cargados: ${stations.length}`);
 
   // ============================================================
   //  4. MAPA Y CAPAS BASE
@@ -743,9 +773,9 @@
           layer.bindPopup(ductoPopup(feature.properties), { maxWidth: 280 });
         }
       }).addTo(map);
-      console.log(`✅ Capa de ductos creada: ${datos.features.length} ductos.`);
+      log(`Capa de ductos creada: ${datos.features.length} ductos.`);
     } catch (e) {
-      console.warn('⚠️ Error al crear capa de ductos:', e);
+      console.error('Error al crear capa de ductos:', e);
       ductosLayer = L.layerGroup().addTo(map);
     }
   }
@@ -823,6 +853,8 @@
   //  7. CLÚSTER Y MARCADORES DE CLIENTES
   // ============================================================
   const cluster = L.markerClusterGroup({
+    chunkedLoading: true,              // no congela la UI al cargar muchos puntos
+    removeOutsideVisibleBounds: true,  // no dibuja lo que está fuera de pantalla
     maxClusterRadius: 50,
     iconCreateFunction: function(c) {
       const n = c.getChildCount();
@@ -846,6 +878,21 @@
     zIndexOffset: 1000, title: 'Morelia (ancla)'
   }).addTo(map).bindPopup(`<strong style="color:var(--primary);">⭐ ${ANCLA.nombre}</strong><br><span style="font-size:.8rem;color:#64748b;">Referencia para distancias</span>`);
 
+  // Los pines solo varían por color (4 posibles). Creamos cada L.divIcon UNA vez
+  // y la reutilizamos: antes se generaba un icono nuevo por cada marcador.
+  const iconCache = new Map();
+  function iconoPin(color) {
+    let ic = iconCache.get(color);
+    if (!ic) {
+      ic = L.divIcon({
+        className: '', html: pinSVG(color),
+        iconSize: [28,40], iconAnchor: [14,40], popupAnchor: [0,-37]
+      });
+      iconCache.set(color, ic);
+    }
+    return ic;
+  }
+
   function pinSVG(color) {
     return `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 3px 4px rgba(0,0,0,0.2));">
       <path d="M14 0 C6.27 0 0 6.27 0 14 C0 24.5 14 40 14 40 S28 24.5 28 14 C28 6.27 21.73 0 14 0 Z" fill="${color}" stroke="#1e293b" stroke-width="1.2"/>
@@ -856,20 +903,11 @@
   function reconstruirMarcadoresClientes() {
     cluster.clearLayers();
     markerMap.clear();
-    stations.forEach(s => {
-      s.distKm = distanciaKm(ANCLA.lat, ANCLA.lon, s.lat, s.lon);
-      const r = getDistRange(s.distKm);
-      s.priceKey = r.key;
-      s.priceColor = r.color;
-      s.priceLabel = r.label;
-      s.direccion = s.direccion || '';
-      s.estado = s.estado || '';
-      s.tamano = s.tamano || '';
-      s.telefono = s.telefono || '';
-    });
+    enriquecer(stations);
+    const nuevos = [];
     stations.forEach(s => {
       const marker = L.marker([s.lat, s.lon], {
-        icon: L.divIcon({ className: '', html: pinSVG(s.priceColor), iconSize: [28,40], iconAnchor: [14,40], popupAnchor: [0,-37] }),
+        icon: iconoPin(s.priceColor),
         title: s.nombre
       });
       marker.bindPopup(() => {
@@ -893,10 +931,12 @@
       }, { className: '', maxWidth: 300 });
       marker.data = s;
       markerMap.set(s, { marker, data: s });
-      cluster.addLayer(marker);
+      nuevos.push(marker);
     });
+    // addLayers() en lote es mucho más rápido que addLayer() en bucle
+    cluster.addLayers(nuevos);
     document.getElementById('rTotal').textContent = stations.length;
-    console.log(`🔄 Marcadores reconstruidos: ${stations.length}`);
+    log(`Marcadores reconstruidos: ${stations.length}`);
   }
 
   // ============================================================
@@ -972,14 +1012,14 @@
       { label: '140 – 180 km', key: 'high',     color: '#ef4444' },
       { label: '> 180 km',     key: 'no-price', color: '#94a3b8' }
     ];
-    ranges.forEach(r => {
-      const count = stations.filter(s => s.priceKey === r.key).length;
-      div.innerHTML += `<div class="row" data-key="${r.key}">
+    // Un solo conteo (antes: 4 pasadas sobre stations) y un solo innerHTML
+    const conteo = new Map();
+    for (const s of stations) conteo.set(s.priceKey, (conteo.get(s.priceKey) || 0) + 1);
+    div.innerHTML += ranges.map(r => `<div class="row" data-key="${r.key}">
         <span class="color-dot" style="background:${r.color};"></span>
         <span class="label">${r.label}</span>
-        <span class="count">${count}</span>
-      </div>`;
-    });
+        <span class="count">${conteo.get(r.key) || 0}</span>
+      </div>`).join('');
     return div;
   };
   legendControl.addTo(map);
@@ -1000,7 +1040,7 @@
     );
 
     cluster.clearLayers();
-    visible.forEach(s => cluster.addLayer(markerMap.get(s).marker));
+    cluster.addLayers(visible.map(s => markerMap.get(s).marker));
     document.getElementById('rMatch').textContent = visible.length;
     document.getElementById('listCnt').textContent = visible.length;
     renderList(visible);
@@ -1320,7 +1360,7 @@
     });
     if ([...select.options].some(o => o.value === currentVal)) select.value = currentVal;
     else select.value = 'all';
-    console.log(`📋 Tamaños actualizados: ${tamanos.length}`);
+    log(`Tamaños actualizados: ${tamanos.length}`);
   }
 
   // ============================================================
@@ -1330,25 +1370,16 @@
     const nuevoJS = localStorage.getItem('CLIENTES_JS');
     if (!nuevoJS) return;
     try {
-      eval(nuevoJS);
-      const nuevos = window.CLIENTES_POTENCIALES || [];
+      const nuevos = leerArrayGuardado(nuevoJS);
+      if (!nuevos || !Array.isArray(nuevos)) { warn('CLIENTES_JS inválido'); return; }
+      window.CLIENTES_POTENCIALES = nuevos;
       stations.length = 0;
       stations.push(...deduplicate(nuevos));
-      stations.forEach(s => {
-        s.distKm = distanciaKm(ANCLA.lat, ANCLA.lon, s.lat, s.lon);
-        const r = getDistRange(s.distKm);
-        s.priceKey = r.key;
-        s.priceColor = r.color;
-        s.priceLabel = r.label;
-        if (!s.direccion) s.direccion = '';
-        if (!s.estado) s.estado = '';
-        if (!s.tamano) s.tamano = '';
-        if (!s.telefono) s.telefono = '';
-      });
+      enriquecer(stations);
       reconstruirMarcadoresClientes();
       actualizarSelectTamano();
       applyFilters();
-      console.log(`✅ Clientes recargados: ${stations.length}`);
+      log(`Clientes recargados: ${stations.length}`);
     } catch (e) { console.error('Error al recargar clientes:', e); }
   }
 
@@ -1356,9 +1387,10 @@
     const nuevoJS = localStorage.getItem('DUCTOS_JS');
     if (!nuevoJS) return;
     try {
-      eval(nuevoJS);
-      if (window.DUCTOS && Array.isArray(window.DUCTOS)) {
-        const geojson = convertirArrayAGeoJSON(window.DUCTOS);
+      const arr = leerArrayGuardado(nuevoJS);
+      if (arr && Array.isArray(arr)) {
+        window.DUCTOS = arr;
+        const geojson = convertirArrayAGeoJSON(arr);
         ductosData = geojson;
         window.DUCTOS_GAS = geojson;
         crearCapaDuctos(ductosData);
@@ -1374,8 +1406,8 @@
   }
 
   window.addEventListener('storage', function(e) {
-    if (e.key === 'DUCTOS_ACTUALIZADO') { console.log('🔄 Detectada actualización de ductos.'); recargarDuctos(); }
-    else if (e.key === 'CLIENTES_ACTUALIZADO') { console.log('🔄 Detectada actualización de clientes.'); recargarClientes(); }
+    if (e.key === 'DUCTOS_ACTUALIZADO') { log('Actualización de ductos detectada.'); recargarDuctos(); }
+    else if (e.key === 'CLIENTES_ACTUALIZADO') { log('Actualización de clientes detectada.'); recargarClientes(); }
   });
 
   // ============================================================
@@ -1387,10 +1419,9 @@
   document.getElementById('rTotal').textContent = stations.length;
   setTimeout(() => map.invalidateSize(), 100);
 
-  console.log(`✅ Mapa de Clientes Potenciales (Morelia) iniciado con ${stations.length} clientes.`);
-  console.log('ℹ️ Usa el botón "Obtener direcciones" para geocodificar clientes.');
+  log(`Mapa iniciado con ${stations.length} clientes.`);
 
-})();
+});
 </script>
 </body>
 </html>
