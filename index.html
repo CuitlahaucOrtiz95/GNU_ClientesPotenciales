@@ -868,11 +868,45 @@ document.addEventListener('DOMContentLoaded', function(){
   map.addLayer(cluster);
   const markerMap = new Map();
 
+  // ============================================================
+  //  MARCADOR PRINCIPAL DE MORELIA (estrella grande)
+  // ============================================================
   L.marker([ANCLA.lat, ANCLA.lon], {
-    icon: L.divIcon({ className: '', iconSize: [44,44], iconAnchor: [22,40],
-      html: `<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));">⭐</div>` }),
-    zIndexOffset: 1000, title: 'Morelia (ancla)'
-  }).addTo(map).bindPopup(`<strong style="color:var(--primary);">⭐ ${ANCLA.nombre}</strong><br><span style="font-size:.8rem;color:#64748b;">Referencia para distancias</span>`);
+    icon: L.divIcon({
+      className: '',
+      iconSize: [44, 44],
+      iconAnchor: [22, 40],
+      html: `<div style="font-size:34px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35));">⭐</div>`
+    }),
+    zIndexOffset: 1000,
+    title: 'Morelia (ancla)'
+  }).addTo(map).bindPopup(`
+    <strong style="color:var(--primary);">⭐ ${ANCLA.nombre}</strong>
+    <br><span style="font-size:.8rem;color:#64748b;">Referencia para distancias</span>
+  `);
+
+  // ============================================================
+  //  MARCADORES ADICIONALES DE GNU (estrella pequeña)
+  // ============================================================
+  const otrasGNU = [
+    { nombre: "GNU Tototlan", lat: 20.53469553507957, lon: -102.78248111783184 },
+    { nombre: "GNU Bluegas", lat: 19.391161334726817, lon: -102.03931287738688 },
+    { nombre: "GNU ENBI", lat: 19.71259808330543, lon: -101.1677248620344 },
+    { nombre: "GNU Sucursal Madre", lat: 19.70507577564912, lon: -101.2447709096754 }
+  ];
+
+  otrasGNU.forEach(p => {
+    L.marker([p.lat, p.lon], {
+      icon: L.divIcon({
+        className: '',
+        iconSize: [28, 28],
+        iconAnchor: [14, 28],
+        html: `<div style="font-size:20px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3));">⭐</div>`
+      }),
+      zIndexOffset: 900,
+      title: p.nombre
+    }).addTo(map).bindPopup(`<strong style="color:var(--primary);">⭐ ${p.nombre}</strong>`);
+  });
 
   const iconCache = new Map();
   function iconoPin(color) {
